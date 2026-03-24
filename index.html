@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Height Measurement App</title>
+
+  <!-- MediaPipe -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+
+  <style>
+    body { font-family: Arial; text-align: center; }
+    video, canvas { width: 100%; max-width: 400px; }
+    button { padding: 10px; margin: 10px; }
+  </style>
+</head>
+
+<body>
+
+<h3>Height Measurement</h3>
+
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas"></canvas>
+
+<br>
+<button onclick="capture()">Capture</button>
+<p id="instruction">Tap A4 TOP, then A4 BOTTOM</p>
+<p id="result"></p>
+
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+let pose;
+let lastLandmarks = null;
+let capturedImage = null;
+
+// Start camera
+navigator.mediaDevices.getUserMedia({ video: true })
+  .then(stream => {
+    video.srcObject = stream;
+  });
+
+// Initialize MediaPipe Pose
+pose = new Pose({
+  locateFile: (file) => {
+    return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+  }
+});
+
+pose.setOptions({
+  modelComplexity: 0,
+  smoothLandmarks: true,
+  enableSegmentation: false
+});
+
+pose.onResults((results) => {
+  if (results.poseLandmarks) {
+    lastLandmarks = results.poseLandmarks;
+  }
+});
+
+// Run pose continuously
+const camera = new Camera(video, {
+  onFrame: async () => {
+    await pose.send({image: video});
+  },
+  width: 640,
+  height: 480
+});
+camera.start();
+
+// Capture image
+function capture() {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0);
+
+  capturedImage = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+  if (!lastLandmarks) {
+    alert("Body not detected. Try again.");
+    return;
+  }
+
+  drawBodyPoints();
+}
+
+// Draw head & feet
+function drawBodyPoints() {
+  let head = lastLandmarks[0]; // nose approx
+  let leftFoot = lastLandmarks[27];
+  let rightFoot = lastLandmarks[28];
+
+  let foot = leftFoot.y > rightFoot.y ? leftFoot : rightFoot;
+
+  let headY = head.y * canvas.height;
+  let footY = foot.y * canvas.height;
+
+  window.childPixels = Math.abs(footY - headY);
+
+  ctx.fillStyle = "red";
+  ctx.beginPath();
+  ctx.arc(head.x * canvas.width, headY, 5, 0, 2 * Math.PI);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(foot.x * canvas.width, footY, 5, 0, 2 * Math.PI);
+  ctx.fill();
+
+  document.getElementById("instruction").innerText =
+    "Now tap A4 TOP and A4 BOTTOM";
+}
+
+// A4 tapping
+let taps = [];
+
+canvas.addEventListener("click", function(e) {
+  taps.push(e.offsetY);
+
+  if (taps.length === 2) {
+    let a4Pixels = Math.abs(taps[0] - taps[1]);
+
+    let height_cm = (childPixels / a4Pixels) * 29.7;
+
+    document.getElementById("result").innerText =
+      "Estimated Height: " + height_cm.toFixed(1) + " cm";
+
+    taps = [];
+  }
+});
+</script>
+
+</body>
+</html>
